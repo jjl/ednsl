@@ -1,4 +1,4 @@
-(defproject ednsl "0.1.0-SNAPSHOT"
+(defproject ednsl "0.1.0"
   :description "A library for writing DSLs in edn"
   :url "https://github.com/jjl/ednsl/"
   :license {:name "MIT License"
