@@ -4,7 +4,22 @@
   (:require [cats.core :as m :refer [>>=]]
             [cats.monad.either :as e]))
 
-(facts :ednsl
+(facts :utilities
+  (fact :left?
+    (left? (e/left 1))  => true
+    (left? (e/right 0)) => false
+    (left? nil)         => false)
+  (fact :right?
+    (right? (e/left 1))  => false
+    (right? (e/right 0)) => true
+    (right? nil)         => false)
+  (facts :add-context
+    (let [ac (add-context :foo :bar)]
+      (fact "returns a function"
+        ac => fn?)
+      (fact "logic"
+        (ac (ctx-form [])) => (e/right (ctx-form {:form [] :foo :bar}))))))
+(facts :building-blocks
   (facts :branch
     (let [b (branch (constantly :left) (constantly :right))]
       (fact "returns a function"
@@ -19,12 +34,6 @@
       (fact "logic"
         (wl (e/left nil)) => :left
         (wl (e/right :right)) => (e/right :right))))
-  (facts :add-context
-    (let [ac (add-context :foo :bar)]
-      (fact "returns a function"
-        ac => fn?)
-      (fact "logic"
-        (ac (ctx-form [])) => (e/right (ctx-form {:form [] :foo :bar})))))
   (facts :invert
     (fact "returns a function"
       (invert nil) => fn?)
@@ -39,34 +48,65 @@
     ((epred integer? "foo") (ctx-form :foo))
     => (e/left (ctx-form {:form :foo
                           :expected "foo"})))
+  (facts :eor
+    (let [e (eor "string or key" estr ekey)]
+      (fact "returns a function"
+        e => fn?)
+      (fact "logic"
+        (e (ctx-form "foo")) => (right (ctx-form "foo"))
+        (e (ctx-form :foo))  => (right (ctx-form :foo))
+        (e (ctx-form 123))   => (left  (ctx-form {:form 123
+                                                  :expected "string or key"}))))))
+(facts :epreds
+  (fact :enil
+    (enil (ctx-form nil))  => (e/right (ctx-form nil))
+    (enil (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                  :expected "nil"})))
+  (fact :etrue
+    (etrue (ctx-form true)) => (e/right (ctx-form true))
+    (etrue (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                   :expected "true"})))
+  (fact :false
+    (efalse (ctx-form false)) => (e/right (ctx-form false))
+    (efalse (ctx-form true))  => (e/left  (ctx-form {:form true
+                                                     :expected "false"})))
+  (fact :ebool
+    (ebool (ctx-form true))  => (e/right (ctx-form true))
+    (ebool (ctx-form false)) => (e/right (ctx-form false))
+    (ebool (ctx-form :foo))  => (e/left  (ctx-form {:form :foo
+                                                    :expected "bool"})))
   (fact :eint
-    (eint (ctx-form 1)) => (e/right (ctx-form 1))
-    (eint (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                 :expected "integer"})))
+    (eint (ctx-form 1))    => (e/right (ctx-form 1))
+    (eint (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                  :expected "integer"})))
   (fact :estr
     (estr (ctx-form "foo")) => (e/right (ctx-form "foo"))
-    (estr (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                 :expected "string"})))
+    (estr (ctx-form :foo))  => (e/left  (ctx-form {:form :foo
+                                                   :expected "string"})))
   (fact :ekey
     (ekey (ctx-form :foo)) => (e/right (ctx-form :foo))
-    (ekey (ctx-form 1)) => (e/left (ctx-form {:form 1
-                                              :expected "keyword"})))
+    (ekey (ctx-form 1))    => (e/left  (ctx-form {:form 1
+                                                  :expected "keyword"})))
   (fact :esym
-    (esym (ctx-form 'a)) => (e/right (ctx-form 'a))
-    (esym (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                 :expected "symbol"})))
+    (esym (ctx-form 'a))   => (e/right (ctx-form 'a))
+    (esym (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                  :expected "symbol"})))
+  (fact :efn
+    (efn (ctx-form cons)) => (e/right (ctx-form cons))
+    (efn (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                 :expected "function"})))
   (fact :elist
     (elist (ctx-form '(:a))) => (e/right (ctx-form '(:a)))
-    (elist (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                  :expected "list"})))
+    (elist (ctx-form :foo))  => (e/left  (ctx-form {:form :foo
+                                                    :expected "list"})))
   (fact :evec
     (evec (ctx-form [:a])) => (e/right (ctx-form [:a]))
-    (evec (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                 :expected "vector"})))
+    (evec (ctx-form :foo)) => (e/left  (ctx-form {:form :foo
+                                                  :expected "vector"})))
   (fact :emap
     (emap (ctx-form {:a :b})) => (e/right (ctx-form {:a :b}))
-    (emap (ctx-form :foo)) => (e/left (ctx-form {:form :foo
-                                                 :expected "map"})))
+    (emap (ctx-form :foo))    => (e/left  (ctx-form {:form :foo
+                                                     :expected "map"})))
   (facts :ecount
     (fact "returns a function"
       (ecount 1) => fn?)
@@ -78,8 +118,9 @@
                             :expected "collection of length 1"}))
       ((ecount 1 2) (ctx-form [1 2 3]))
       => (e/left (ctx-form {:form [1 2 3]
-                            :expected "collection of length between 1 and 2 (inc.)"}))))
-  (fact :etuple
+                            :expected "collection of length between 1 and 2 (inc.)"})))))
+(facts :data-structures
+  (facts :etuple
     (let [e (etuple e/right e/left)]
       (fact "returns a fn"
         e => fn?)
@@ -87,6 +128,17 @@
         (e (ctx-form [1 2])) => (e/left (ctx-form 2))
         ((etuple e/right e/right)
          (ctx-form [1 2])) => (e/right (ctx-form [1 2])))))
+  (facts :etuple-chain
+    (let [e (etuple-chain e/right e/left)]
+      (fact "returns a fn"
+        e => fn?)
+      (fact "results"
+        (e (ctx-form [1 2])) => (e/left (ctx-form 2))
+        ((etuple-chain e/right e/right)
+         (ctx-form [1 2])) => (e/right (ctx-form [1 2])))
+      (fact "chains nicely"
+;        (etuple
+        )))
   (facts :eithery
     (let [ei (eithery eint)]
       (fact "returns a function"
@@ -114,17 +166,8 @@
       (fact "logic"
         (ev (ctx-form {:a 1 :b 2})) => (e/right (ctx-form {:a 1 :b 2}))
         (ev (ctx-form {:a 1 2 :b}))
-        => (e/left (ctx-form {:form :b, :expected "integer"})))))
-  (facts :eor
-    (let [e (eor "string or key" estr ekey)]
-      (fact "returns a function"
-        e => fn?)
-      (fact "logic"
-        (e (ctx-form "foo")) => (right (ctx-form "foo"))
-        (e (ctx-form :foo)) => (right (ctx-form :foo))
-        (e (ctx-form 123)) => (left (ctx-form {:form 123
-                                               :expected "string or key"})))))
-  (fact :reading
-    (let [f (read-file "t-data/test.edn")]
-      f => {:foo '(bar baz) :quux ["foo"]}
-      (read-str (slurp "t-data/test.edn")) => f)))
+        => (e/left (ctx-form {:form :b, :expected "integer"}))))))
+(facts :reading
+  (let [f (read-file "t-data/test.edn")]
+    f => {:foo '(bar baz) :quux ["foo"]}
+    (read-str (slurp "t-data/test.edn")) => f))

@@ -10,90 +10,18 @@
 ;; # ednsl
 ;; 
 ;; A super-simple library for creating DSLs with EDN syntax
-;; 
-;; ## Quickstart
-;; 
-;; ## Basics
-;; 
-;; Let's get some definitions out of the way:
-;; 
-;; Either
-;; : A protocol implemented by two records, Left and Right
-;; 
-;; Left
-;; : A record which indicates failure of a process. Contains useful info
-;; 
-;; Right
-;; : A record which indicates success. Contains a result
-;; 
-;; ctx-form
-;; : A 'context form', contains a context object and a form. Currently
-;;   implemented with clj-tuple, but don't rely on this, use the `cf-ctx`
-;;   and `cf-form` accessor functions
-;; 
-;; epred
-;; : An expecter function. Takes a ctx-form and returns an Either[ctx-form]
-;; 
-;; ## Either Quickstart
-;; 
-;; We've stolen the 'Either' datastructure from Haskell and implemented
-;; it in clojure. Put simply, you use the `left` and `right` functions
-;; to create one, with Left symbolising failure and Right symbolising
-;; success. We'll walk you through using these first.
-;; 
-;; We can create a Right with the 'right' function, passing as an argument
-;; the item we wish to be wrapped. Similarly for the 'left' function
-;; 
-;; ```clojure
-;; (right :foo) ; represents a successful match of `:foo`
-;; (left :foo)  ; represents a failing match against `:foo`
-;; ```
-;; 
-;; Since we intend to behave differently dependening on whether we are
-;; working with a left or a right (failure or success), we need a way to
-;; switch behaviour based on the value. The easiest way is `branch`, which
-;; takes two functions. If the value is a left, the left function is
-;; called and if it is a right, the right function is called.
 ;;
-;; ```clojure
-;; (def either-to-bool (branch (constantly false) (constantly true)))
-;; ```
-;;
-;; A couple of things to note:
-;; - The return type is a function
-;; - The arguments are both functions
-;; 
-;; This is a little convoluted, but hopefully in the next section, you'll
-;; even notice what's underpinning 
-
-;; We can use `>>=` (pronounced 'bind') to chain a function to the Either
-;; What this means is that if the Either is a left, the left will be returned
-;; but if it is a right, the function will be executed, passing in e
-
-
-;; since a successful parse result is anything other than a failure token,
-;; the simplest spectre that always works is 'constantly':
-;;
-;; ```(constantly 4) ; match anything, always return 4```
-;;
-;; ednsl includes some simple spectres that assert their arguments are of
-;; a given type (eg. `eint` succeeds only when given an integer)
-;;
-;; `eint` also has an optional second argument, a chained spectre that will
-;; be called with the input if the first spectre succeeds.
-;; For example, here's how we could check f is a positive integer:
-;;
-;; ```(eint f #(if (> 0 %) % (fail % "positive integer"))
-;;
-;; This mechanism allows us to perform automatic type conversion, further
-;; validation and allows for easy composition of spectres
+(declare eor) ; Move declaration order for didactic purposes
 
 ;; ## Convenience functions
 
-(def ctx-form u/ctx-form)
 
+(def ctx-form u/ctx-form)
 (def left e/left)
 (def right e/right)
+
+(def left?  "Is this a left? Any -> Bool."  (every-pred e/either? e/left?))
+(def right? "Is this a right? Any -> Bool." (every-pred e/either? e/right?))
 
 (defn branch
   "Given two functions, returns a function which executes one depending on
@@ -107,17 +35,61 @@
   [l-f r-f]
   (partial ee/branch l-f r-f))
 
+(defmacro when-left*
+  ""
+  [e & exprs]
+  `(let [e# ~e]
+     (if (left? e#)
+       (do ~@exprs)
+       e#)))
+
+(defmacro when-not-left*
+  ""
+  [e & exprs]
+  `(let [e# ~e]
+     (if (left? e#)
+       e# 
+       (do ~@exprs))))
+
+(defmacro when-right*
+  ""
+  [e & exprs]
+  `(let [e# ~e]
+     (if (right? e#)
+       (do ~@exprs)
+       e#)))
+
+(defmacro when-not-right*
+  ""
+  [e & exprs]
+  `(let [e# ~e]
+     (if (right? e#)
+       e# 
+       (do ~@exprs))))
+
 (defn when-left
   "Given a function, returns a function which executes with the provided either
-   only when it is Left or else returns the right. when-right is spelled '>>-'
+   only when it is Left or else returns the value unchanged
    NOTE: you cannot bind into this, because bind will never reach it
-   Correct example: `(when-left (>>- my monadic chain) (left nil))
+   Correct example: `((when-left (>>- my monadic chain)) (left nil))
    Args: [f]
    Returns: Function:
-      Args: [either]
-      Return:"
+      Args: [Any]
+      Return: Right, or return-typeof(f)"
   [f]
-  (branch f right))
+  #(when-left* % (f m/extract %)))
+
+(defn when-right
+  "Given a function, returns a function which executes with the provided value
+   only when it is Right or else returns the value unchanged
+   NOTE: you cannot bind into this, because bind will never reach it
+   Correct example: `((when-right (>>- my monadic chain)) (left nil))
+   Args: [f]
+   Returns: Function:
+      Args: [Any]
+      Return: Right, or return-typeof(f)"
+  [f]
+  #(when-right* % (f m/extract %)))
 
 (defn add-context
   "Given a key and a value, returns a function which adds the context to the
@@ -134,8 +106,7 @@
    provided, that is if it returns a left, return a right and vice versa.
    Eg: `(>>= (invert #(left nil)) handle-error)`"
   [f]
-  (fn [e]
-    (ee/invert (f e))))
+  #(ee/invert (f %)))
 
 (defn epred
   "Given a predicate function, Returns a function in the Either monad based
@@ -149,7 +120,45 @@
   [p exp-desc]
   (partial u/ctx-pred p exp-desc))
 
+(defn eor
+  "Given some epreds, returns a function which returns the first Right
+   respon se or else a Left
+   Args: [& epreds]
+   Returns: Function:
+       Args: [ctx-form]
+       Returns: Either[ctx-form]"
+  [desc & epreds]
+  {:pre [#(-> epreds count pos?)]}
+  (fn [cf]
+    (let [rs (map #(% cf) epreds)]
+      (or (ee/first-right rs)
+          (u/fail {:expected desc} cf)))))
+
 ;; ## Built in simple epreds
+
+(def enil
+  "Expects nil
+   Args: [ctx-form]
+   Returns: Either[ctx-form]"
+  (epred nil? "nil"))
+
+(def etrue
+  "Expects true
+   Args: [ctx-form]
+   Returns: Either[ctx-form]"
+  (epred true? "true"))
+
+(def efalse
+  "Expects false
+   Args: [ctx-form]
+   Returns: Either[ctx-form]"
+  (epred false? "false"))
+
+(def ebool
+  "Expects false
+   Args: [ctx-form]
+   Returns: Either[ctx-form]"
+  (eor "bool" etrue efalse))
 
 (def eint
   "Expects an integer
@@ -174,6 +183,12 @@
    Args: [ctx-form]
    Returns: Either[ctx-form]"
   (epred symbol? "symbol"))
+
+(def efn
+  "Expects a function. Useful for e.g. evaluating lists
+   Args: [ctx-form]
+   Returns: Either[ctx-form]"
+  (epred fn? "function"))
 
 (def elist
   "Expects a list
@@ -203,34 +218,47 @@
      (epred (partial c/count<= low high)
             (str "collection of length between " low " and " high " (inc.)"))))
 
-;; (defn enth-in 
-
-;; (defn enth
-;;   ""
-;;   [ep nth]
-;;   (fn [cf] ;;;;; WTF?
-;;     (update-form (branch (ep (first f)) left) cf))
-;;                                                     (replace-nth-in nth (
-;;   #(update-form (-> coll empty (into %) right)))
-
 (defn etuple
-  "Given some preds, returns a function that expects a vector of that
-   many items, zips the epreds and the received vector and binds them
-   into a chain, returning either the first received Left or else a new
-   vector made up from the Rights, in a Right.
+  "Given some preds, returns a function that expects a vector and zips the
+   epreds and the vector together returning either the first Left or else
+   a new right with a vector made up of the contents of the rights
+   Args: [& preds]
+   Returns: Function:
+       Args: [ctx-form]
+       Returns: Either"
+
+  [& epreds]
+  (fn [{:keys [form] :as cf}]
+
+    (let [rs (map #(% (u/replace-form %2 cf)) epreds form)]
+      (if-let [l (ee/first-left rs)]
+        l
+        (-> (c/into-coll form (map (comp u/cf-form m/extract) rs))
+            (u/replace-form cf) right)))))
+
+(defn etuple-chain
+  "Given some preds, returns a function that expects a vector and zips the
+   epreds and the vector together in a monadic chain (context propagates along
+   the chain so earlier functions can affect the context for later functions.
+   Returns either the first Left in the chain or a new right with a vector
+   made up of the contents of the rights
    Args: [& preds]
    Returns: Function:
        Args: [ctx-form]
        Returns: Either"
   [& epreds]
-  (fn [cf]
-    (let [form (u/cf-form cf)
-          rs (map #(% (u/replace-form %2 cf)) epreds form)]
-      (or (ee/first-left rs)
-          (-> form
-              (c/into-coll (map (comp u/cf-form m/extract) rs))
-              (u/replace-form cf)
-              right)))))
+  (fn [{:keys [form] :as cf}]
+    (loop [prev cf
+           acc []
+           [e & es] epreds
+           [f & fs] form]
+      (when-right* prev
+                   (let [r (e (u/replace-form f prev))
+                         new-acc (conj acc (m/extract r))]
+                     (when-right* r
+                                  (if (every? seq [es fs])
+                                    (recur r new-acc es fs)
+                                    (right (u/replace-form new-acc cf)))))))))
 
 (defn eithery
   "Returns a function that asserts that all the contents of the given form
@@ -264,20 +292,6 @@
        Returns: Either[ctx-form]"
   [epred]
   (eithery (etuple right epred)))
-
-(defn eor
-  "Given some epreds, returns a function which returns the first Right
-   respon se or else a Left
-   Args: [& epreds]
-   Returns: Function:
-       Args: [ctx-form]
-       Returns: Either[ctx-form]"
-  [desc & epreds]
-  {:pre [#(-> epreds count pos?)]}
-  (fn [cf]
-    (let [rs (map #(% cf) epreds)]
-      (or (ee/first-right rs)
-          (u/fail {:expected desc} cf)))))
 
 (defn read-file
   "Reads file at path as edn
