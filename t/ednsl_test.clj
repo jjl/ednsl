@@ -4,6 +4,8 @@
   (:require [cats.core :as m]
             [cats.monad.either :as e]))
 
+(def existent-symbol :bar)
+
 (facts :context
   (fact :ctx-form
     (ctx-form :abc) => {:form :abc}
@@ -204,7 +206,14 @@
         (ev (ctx-form {:a 1 :b 2})) => (e/right (ctx-form {:a 1 :b 2}))
         (ev (ctx-form {:a 1 2 :b}))
         => (e/left (ctx-form {:form :b, :expected "integer"}))))))
-(facts :reading
-  (let [f (read-file "t-data/test.edn")]
-    f => {:foo '(bar baz) :quux ["foo"]}
-    (read-str (slurp "t-data/test.edn")) => f))
+(facts :utilities
+  (fact :eload-sym
+    (eload-sym (ctx-form 'nonexistent/symbol))
+    =>  (left (ctx-form {:form 'nonexistent/symbol
+                         :expected "loadable symbol"}))
+    (eload-sym (ctx-form `existent-symbol))
+    =>  (right (ctx-form existent-symbol)))
+  (facts :reading
+    (let [f (read-file "t-data/test.edn")]
+      f => {:foo '(bar baz) :quux ["foo"]}
+      (read-str (slurp "t-data/test.edn")) => f)))

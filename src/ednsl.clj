@@ -592,9 +592,9 @@
    Returns: Either[ctx-form]"
   [{:keys [form] :as cf}]
   (or (try (-> form namespace symbol require)
-           (-> @(find-var form) right)
+           (-> @(find-var form) (replace-form* cf) right)
            (catch Exception e nil))
-      (fail "loadable symbol" cf)) cf)
+      (fail {:expected "loadable symbol"} cf)))
 
 (defn read-file
   "Reads file at path as edn
